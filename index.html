@@ -1,122 +1,118 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Điều Khiển Xe - 3 Nút</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; background-color: #eef2f3; color: #333; margin: 0; padding: 20px; }
-        h2 { text-align: center; color: #2c3e50; }
-        .status-bar { text-align: center; padding: 10px; margin-bottom: 20px; font-weight: bold; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        #conn-status { color: orange; }
-        
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 900px; margin: 0 auto; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
-        .card h3 { margin-top: 0; color: #34495e; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
-        .data-text { font-size: 1.2em; margin: 12px 0; font-weight: bold; color: #2980b9; }
-        
-        /* Thiết kế 3 nút bấm to, rõ ràng */
-        .btn-container { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; }
-        .btn { padding: 15px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
-        .btn:active { transform: scale(0.98); }
-        
-        .btn-power { background-color: #e67e22; } .btn-power:hover { background-color: #d35400; }
-        .btn-start { background-color: #27ae60; } .btn-start:hover { background-color: #2ecc71; }
-        .btn-ac { background-color: #2980b9; } .btn-ac:hover { background-color: #3498db; }
-    </style>
-</head>
-<body>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test 3 relay ESP32</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111a20;color:#f1f6f7;font:16px system-ui,sans-serif}main{max-width:850px;margin:auto;padding:clamp(24px,6vw,68px) 20px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}h1{font-size:clamp(28px,5vw,44px);margin:0;letter-spacing:-.045em}h2{margin:0 0 10px;font-size:18px}.panel,article{background:#1b2831;border:1px solid #344752;border-radius:14px;padding:20px}.status{border:1px solid #546771;border-radius:999px;padding:6px 12px;color:#c6d5da}.status.ready{color:#85efc3;border-color:#528971}form,.channels{display:grid;gap:12px;grid-template-columns:repeat(3,1fr)}form{align-items:end}.channels{margin:18px 0}label{display:grid;gap:5px}input,button{font:inherit;border-radius:8px;padding:10px 12px;width:100%}input{color:inherit;background:#111a20;border:1px solid #58707c}button{border:0;background:#9aebcc;color:#0d241b;font-weight:700;cursor:pointer;min-height:44px}button:disabled{background:#354650;color:#b4c1c9;cursor:default}article p,small{color:#bfcdd4}article button{margin-top:5px}article:nth-child(2) button:not(:disabled){background:#ffd596}.details{overflow-wrap:anywhere;display:block;margin-top:12px}ol{padding-left:24px;margin:8px 0 0;max-height:230px;overflow:auto}li{padding:4px 0;overflow-wrap:anywhere}@media(max-width:600px){form,.channels{grid-template-columns:1fr}}
+</style>
+<main>
+<header><h1>Test 3 relay ESP32</h1><span id="status" class="status" role="status">Chưa kết nối MQTT</span></header>
+<section class="panel" aria-labelledby="connection">
+<h2 id="connection">Kết nối EMQX</h2>
+<form id="connect">
+<label>Tên người dùng MQTT<input id="user" required autocomplete="username"></label>
+<label>Mật khẩu MQTT<input id="pass" required type="password" autocomplete="current-password"></label>
+<button id="connect-button" type="submit">Kết nối</button>
+</form>
+<small class="details">Máy chủ EMQX · WSS 8084 · oto/dieukhien</small>
+</section>
+<section class="channels" aria-label="Điều khiển relay">
+<article><h2>Nguồn</h2><p>GPIO21 · Kích LOW</p><button disabled data-command="TOGGLE_IGNITION">Bật / tắt nguồn</button></article>
+<article><h2>Đề</h2><p>GPIO22 · Kích HIGH · Khoảng 1,5 giây</p><button disabled data-command="START_ENGINE">Kích đề</button></article>
+<article><h2>Máy lạnh</h2><p>GPIO23 · Kích HIGH</p><button disabled data-command="TOGGLE_AC">Bật / tắt máy lạnh</button></article>
+</section>
+<section class="panel" aria-labelledby="events"><h2 id="events">Nhật ký</h2><ol id="log" aria-live="polite"><li>Chờ kết nối EMQX.</li></ol></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.14.1/dist/mqtt.min.js"></script>
+<script>
+'use strict';
+const broker = 'wss://gd061a36.ala.asia-southeast1.emqxsl.com:8084/mqtt';
+const controlTopic = 'oto/dieukhien';
+const statusTopic = 'oto/trangthai';
+const form = document.querySelector('#connect');
+const username = document.querySelector('#user');
+const password = document.querySelector('#pass');
+const connectButton = document.querySelector('#connect-button');
+const status = document.querySelector('#status');
+const log = document.querySelector('#log');
+const controls = [...document.querySelectorAll('[data-command]')];
+let client;
 
-    <h2>Bảng Điều Khiển Xe ESP32</h2>
-    <div class="status-bar">
-        Kết nối Server: <span id="conn-status">Đang kết nối...</span>
-    </div>
+function addLog(message) {
+  const item = document.createElement('li');
+  item.textContent = new Date().toLocaleTimeString('vi-VN') + ' · ' + message;
+  log.prepend(item);
+  if (log.children.length > 30) log.lastElementChild.remove();
+}
 
-    <div class="grid-container">
-        <!-- Khu vực 3 Nút Điều Khiển -->
-        <div class="card">
-            <h3>Công Tắc Điều Khiển</h3>
-            <div class="btn-container">
-                <button class="btn btn-power" onclick="sendCommand('TOGGLE_IGNITION')">1. Bật / Tắt Nguồn (D21)</button>
-                <button class="btn btn-start" onclick="sendCommand('START_ENGINE')">2. Đề Nổ Máy (D22)</button>
-                <button class="btn btn-ac" onclick="sendCommand('TOGGLE_AC')">3. Bật / Tắt Máy Lạnh (D23)</button>
-            </div>
-        </div>
+function connectionState(message, ready = false) {
+  status.textContent = message;
+  status.classList.toggle('ready', ready);
+  controls.forEach(button => { button.disabled = !ready; });
+}
 
-        <!-- Khu vực Thông báo từ xe -->
-        <div class="card">
-            <h3>Trạng Thái Hệ Thống</h3>
-            <p class="data-text" id="sys-status" style="color: #8e44ad; min-height: 50px;">Đang chờ lệnh...</p>
-            <hr>
-            <h3>Cảm Biến An Toàn</h3>
-            <p class="data-text">Cửa: <span id="door">--</span></p>
-            <p class="data-text">Cần số: <span id="gear">--</span></p>
-        </div>
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  if (client) {
+    const current = client;
+    client = undefined;
+    current.end(true);
+    connectionState('Đã ngắt MQTT');
+    connectButton.textContent = 'Kết nối';
+    return;
+  }
+  if (!window.mqtt) {
+    addLog('Không tải được thư viện MQTT. Kiểm tra Internet và tải lại trang.');
+    return;
+  }
 
-        <!-- Khu vực Môi trường -->
-        <div class="card">
-            <h3>Nhiệt Độ & Độ Ẩm</h3>
-            <p class="data-text">Nhiệt độ: <span id="temp">--</span> °C</p>
-            <p class="data-text">Độ ẩm: <span id="humidity">--</span> %</p>
-        </div>
-    </div>
+  connectionState('Đang kết nối MQTT');
+  const connection = mqtt.connect(broker, {
+    username: username.value,
+    password: password.value,
+    protocolVersion: 4,
+    clean: true,
+    reconnectPeriod: 0,
+    connectTimeout: 8000
+  });
+  client = connection;
+  connectButton.textContent = 'Ngắt kết nối';
 
-    <script>
-        const brokerUrl = 'wss://gd061a36.ala.asia-southeast1.emqxsl.com:8084/mqtt';
-        const options = {
-            clientId: 'web_3btn_' + Math.random().toString(16).substr(2, 8),
-            username: 'Oto', // ĐIỀN USERNAME CỦA BẠN
-            password: '12345abc', // ĐIỀN PASSWORD CỦA BẠN
-            keepalive: 60,
-            clean: true,
-            reconnectPeriod: 1000,
-        };
+  connection.on('connect', () => {
+    if (client !== connection) return;
+    connection.subscribe(statusTopic, { qos: 0 }, (error, granted) => {
+      if (client !== connection) return;
+      if (error || granted?.[0]?.qos !== 0) {
+        addLog('Broker từ chối đăng ký nhận trạng thái ESP32.');
+        connection.end(true);
+        return;
+      }
+      connectionState('Đã kết nối MQTT', true);
+      addLog('Đã kết nối broker. Bấm một nút để thử và xem phản hồi từ ESP32.');
+    });
+  });
+  connection.on('message', (topic, payload) => {
+    if (client === connection && topic === statusTopic) addLog('ESP32 · ' + payload.toString());
+  });
+  connection.on('error', error => {
+    if (client === connection) addLog('Lỗi MQTT · ' + error.message);
+  });
+  connection.on('close', () => {
+    if (client !== connection) return;
+    client = undefined;
+    connectionState('MQTT đã ngắt');
+    connectButton.textContent = 'Kết nối';
+    addLog('Đã đóng kết nối với broker.');
+  });
+});
 
-        const client = mqtt.connect(brokerUrl, options);
-
-        client.on('connect', function () {
-            document.getElementById('conn-status').innerText = "Đã kết nối EMQX Cloud";
-            document.getElementById('conn-status').style.color = "#27ae60";
-            
-            client.subscribe('oto/trangthai');
-            client.subscribe('car/sensors/state');
-            client.subscribe('car/sensors/environment');
-        });
-
-        client.on('message', function (topic, message) {
-            const msgStr = message.toString();
-
-            if (topic === 'oto/trangthai') {
-                document.getElementById('sys-status').innerText = msgStr;
-            } 
-            else if (topic === 'car/sensors/environment') {
-                try {
-                    const envData = JSON.parse(msgStr);
-                    document.getElementById('temp').innerText = envData.temp;
-                    document.getElementById('humidity').innerText = envData.humidity;
-                } catch (e) {}
-            }
-            else if (topic === 'car/sensors/state') {
-                try {
-                    const stateData = JSON.parse(msgStr);
-                    document.getElementById('door').innerText = stateData.door;
-                    
-                    const gearElem = document.getElementById('gear');
-                    gearElem.innerText = stateData.gear;
-                    gearElem.style.color = (stateData.gear === "Cần số Sai vị trí") ? "red" : "#2980b9";
-                } catch (e) {}
-            }
-        });
-
-        client.on('error', function(error) {
-            document.getElementById('conn-status').innerText = "Lỗi kết nối!";
-            document.getElementById('conn-status').style.color = "red";
-        });
-
-        function sendCommand(cmd) {
-            client.publish('oto/dieukhien', cmd);
-        }
-    </script>
-</body>
+controls.forEach(button => button.addEventListener('click', () => {
+  if (!client?.connected || button.disabled) return;
+  const command = button.dataset.command;
+  client.publish(controlTopic, command, { qos: 0, retain: false }, error => {
+    addLog(error ? 'Lỗi gửi lệnh · ' + error.message : 'Đã gửi ' + command + ' · Chờ phản hồi ESP32');
+  });
+}));
+</script>
 </html>
