@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Điều Khiển Xe - 3 Nút</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #eef2f3; color: #333; margin: 0; padding: 20px; }
+        h2 { text-align: center; color: #2c3e50; }
+        .status-bar { text-align: center; padding: 10px; margin-bottom: 20px; font-weight: bold; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        #conn-status { color: orange; }
+        
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 900px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { margin-top: 0; color: #34495e; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+        .data-text { font-size: 1.2em; margin: 12px 0; font-weight: bold; color: #2980b9; }
+        
+        /* Thiết kế 3 nút bấm to, rõ ràng */
+        .btn-container { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; }
+        .btn { padding: 15px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+        .btn:active { transform: scale(0.98); }
+        
+        .btn-power { background-color: #e67e22; } .btn-power:hover { background-color: #d35400; }
+        .btn-start { background-color: #27ae60; } .btn-start:hover { background-color: #2ecc71; }
+        .btn-ac { background-color: #2980b9; } .btn-ac:hover { background-color: #3498db; }
+    </style>
+</head>
+<body>
+
+    <h2>Bảng Điều Khiển Xe ESP32</h2>
+    <div class="status-bar">
+        Kết nối Server: <span id="conn-status">Đang kết nối...</span>
+    </div>
+
+    <div class="grid-container">
+        <!-- Khu vực 3 Nút Điều Khiển -->
+        <div class="card">
+            <h3>Công Tắc Điều Khiển</h3>
+            <div class="btn-container">
+                <button class="btn btn-power" onclick="sendCommand('TOGGLE_IGNITION')">1. Bật / Tắt Nguồn (D21)</button>
+                <button class="btn btn-start" onclick="sendCommand('START_ENGINE')">2. Đề Nổ Máy (D22)</button>
+                <button class="btn btn-ac" onclick="sendCommand('TOGGLE_AC')">3. Bật / Tắt Máy Lạnh (D23)</button>
+            </div>
+        </div>
+
+        <!-- Khu vực Thông báo từ xe -->
+        <div class="card">
+            <h3>Trạng Thái Hệ Thống</h3>
+            <p class="data-text" id="sys-status" style="color: #8e44ad; min-height: 50px;">Đang chờ lệnh...</p>
+            <hr>
+            <h3>Cảm Biến An Toàn</h3>
+            <p class="data-text">Cửa: <span id="door">--</span></p>
+            <p class="data-text">Cần số: <span id="gear">--</span></p>
+        </div>
+
+        <!-- Khu vực Môi trường -->
+        <div class="card">
+            <h3>Nhiệt Độ & Độ Ẩm</h3>
+            <p class="data-text">Nhiệt độ: <span id="temp">--</span> °C</p>
+            <p class="data-text">Độ ẩm: <span id="humidity">--</span> %</p>
+        </div>
+    </div>
+
+    <script>
+        const brokerUrl = 'wss://gd061a36.ala.asia-southeast1.emqxsl.com:8084/mqtt';
+        const options = {
+            clientId: 'web_3btn_' + Math.random().toString(16).substr(2, 8),
+            username: 'Oto', // ĐIỀN USERNAME CỦA BẠN
+            password: '12345abc', // ĐIỀN PASSWORD CỦA BẠN
+            keepalive: 60,
+            clean: true,
+            reconnectPeriod: 1000,
+        };
+
+        const client = mqtt.connect(brokerUrl, options);
+
+        client.on('connect', function () {
+            document.getElementById('conn-status').innerText = "Đã kết nối EMQX Cloud";
+            document.getElementById('conn-status').style.color = "#27ae60";
+            
+            client.subscribe('oto/trangthai');
+            client.subscribe('car/sensors/state');
+            client.subscribe('car/sensors/environment');
+        });
+
+        client.on('message', function (topic, message) {
+            const msgStr = message.toString();
+
+            if (topic === 'oto/trangthai') {
+                document.getElementById('sys-status').innerText = msgStr;
+            } 
+            else if (topic === 'car/sensors/environment') {
+                try {
+                    const envData = JSON.parse(msgStr);
+                    document.getElementById('temp').innerText = envData.temp;
+                    document.getElementById('humidity').innerText = envData.humidity;
+                } catch (e) {}
+            }
+            else if (topic === 'car/sensors/state') {
+                try {
+                    const stateData = JSON.parse(msgStr);
+                    document.getElementById('door').innerText = stateData.door;
+                    
+                    const gearElem = document.getElementById('gear');
+                    gearElem.innerText = stateData.gear;
+                    gearElem.style.color = (stateData.gear === "Cần số Sai vị trí") ? "red" : "#2980b9";
+                } catch (e) {}
+            }
+        });
+
+        client.on('error', function(error) {
+            document.getElementById('conn-status').innerText = "Lỗi kết nối!";
+            document.getElementById('conn-status').style.color = "red";
+        });
+
+        function sendCommand(cmd) {
+            client.publish('oto/dieukhien', cmd);
+        }
+    </script>
+</body>
+</html>
